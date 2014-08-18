@@ -5,6 +5,36 @@ from google.appengine.api import channel
 from google.appengine.api import users
 from google.appengine.ext import ndb
 
+
+
+JINJA_ENVIRONMENT = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
+    extensions=['jinja2.ext.autoescape'])
+
+class BaseHandler(webapp2.RequestHandler):
+
+    def generate(self, template_name, values):
+        template = JINJA_ENVIRONMENT.get_template('templates/' + template_name)
+        return template.render(values)
+
+    def json_response(self, response):
+        self.response.headers.add_header('content-type', 'application/json', charset='utf-8')
+        self.response.write(json.dumps(response))
+
+class ChatHandler(observer.Observer, BaseHandler):
+    
+    def post(self):
+        self.update(self.get_response())
+
+    def get_response(self):
+        text = self.request.get('message')
+        html = self.generate('message.html', 
+            {'user': users.get_current_user(),
+             'msg': text})
+        response = {'event': 'chat',
+            'args': {'html': html}}
+        return json.dumps(response)
+
 class Game(ndb.Model):
   """All the data we store for a game"""
   userX = ndb.UserProperty()

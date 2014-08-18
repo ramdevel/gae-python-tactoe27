@@ -108,9 +108,8 @@ class GameFromRequest():
   game = None;
 
   def __init__(self, request):
-    user = users.get_current_user()
     game_key = request.get('g')
-    if user and game_key:
+    if game_key:
       self.game = Game.get_by_id(game_key)
 
   def get_game(self):
@@ -121,9 +120,9 @@ class MovePage(webapp2.RequestHandler):
 
   def post(self):
     game = GameFromRequest(self.request).get_game()
-    user = users.get_current_user()
-    if game and user:
+    if game:
       id = int(self.request.get('i'))
+      user = users.get_current_user()
       GameUpdater(game).make_move(id, user)
 
 
@@ -142,37 +141,34 @@ class MainPage(webapp2.RequestHandler):
     user = users.get_current_user()
     game_key = self.request.get('g')
     game = None
-    if user:
-      if not game_key:
-        game_key = user.user_id()
-        game = Game(id = game_key,
-                    userX = user,
-                    moveX = True,
-                    board = '         ')
-        game.put()
-      else:
-        game = Game.get_by_id(game_key)
-        if not game.userO:
-          game.userO = user
-          game.put()
-
-      game_link = 'http://localhost:8080/?g=' + game_key
-
-      if game:
-        token = channel.create_channel(user.user_id() + game_key)
-        template_values = {'token': token,
-                           'me': user.user_id(),
-                           'game_key': game_key,
-                           'game_link': game_link,
-                           'initial_message': GameUpdater(game).get_game_message()
-                          }
-        template = JINJA_ENVIRONMENT.get_template('index.html')
-        self.response.write(template.render(template_values))
-
-      else:
-        self.response.out.write('No such game')
+    if not game_key:
+      game_key = user.user_id()
+      game = Game(id = game_key,
+                  userX = user,
+                  moveX = True,
+                  board = '         ')
+      game.put()
     else:
-      self.redirect(users.create_login_url(self.request.uri))
+      game = Game.get_by_id(game_key)
+      if not game.userO:
+        game.userO = user
+        game.put()
+
+    game_link = 'http://localhost:8080/?g=' + game_key
+
+    if game:
+      token = channel.create_channel(user.user_id() + game_key)
+      template_values = {'token': token,
+                         'me': user.user_id(),
+                         'game_key': game_key,
+                         'game_link': game_link,
+                         'initial_message': GameUpdater(game).get_game_message()
+                        }
+      template = JINJA_ENVIRONMENT.get_template('index.html')
+      self.response.write(template.render(template_values))
+
+    else:
+      self.response.out.write('No such game')
 
 
 
