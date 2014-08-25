@@ -186,7 +186,6 @@
         state.winningBoard = newState.winningBoard || "";
         updateGame();
       }
-      
       openChannel = function() {
         var token = '{{ token }}';
         var channel = new goog.appengine.Channel(token);
@@ -216,7 +215,7 @@
 
     </script>
     <div id='display-area'>
-      <h2>Channel-based Tic Tac Toe</h2>
+      <h2>Tic Tac Toe</h2>
       <div id='other-player' style='display:none'>
         Waiting for another player to join.<br>
         Send them this link to play:<br>

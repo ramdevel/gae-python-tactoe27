@@ -1,126 +1,61 @@
-import jinja2
+"""Channel Tic Tac Toe  Python 2.7
+
+This module demonstrates the App Engine Channel API by implementing a
+simple tic-tac-toe game.
+"""
+
+import datetime
+import logging
 import os
-import webapp2
+import random
+import re
+import json
 from google.appengine.api import channel
 from google.appengine.api import users
 from google.appengine.ext import ndb
 
+import jinja2
+import webapp2
 
 
 JINJA_ENVIRONMENT = jinja2.Environment(
     loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-    extensions=['jinja2.ext.autoescape'])
-
-class BaseHandler(webapp2.RequestHandler):
-
-    def generate(self, template_name, values):
-        template = JINJA_ENVIRONMENT.get_template('templates/' + template_name)
-        return template.render(values)
-
-    def json_response(self, response):
-        self.response.headers.add_header('content-type', 'application/json', charset='utf-8')
-        self.response.write(json.dumps(response))
-
-class ChatHandler(observer.Observer, BaseHandler):
-    
-    def post(self):
-        self.update(self.get_response())
-
-    def get_response(self):
-        text = self.request.get('message')
-        html = self.generate('message.html', 
-            {'user': users.get_current_user(),
-             'msg': text})
-        response = {'event': 'chat',
-            'args': {'html': html}}
-        return json.dumps(response)
+    extensions=['jinja2.ext.autoescape'],
+    autoescape=True)
 
 class Game(ndb.Model):
   """All the data we store for a game"""
   userX = ndb.UserProperty()
   userO = ndb.UserProperty()
-  board = ndb.StringProperty()
+  board = ndb.StringProperty(indexed=False)
   moveX = ndb.BooleanProperty()
-  winner = ndb.StringProperty()
-  winning_board = ndb.StringProperty()
-  key_name = ndb.StringProperty()
+  winner = ndb.StringProperty(indexed=False)
+  winning_board = ndb.StringProperty(indexed=False)
+  
 
-class MainPage(webapp2.RequestHandler):
-  """This page is responsible for showing the game UI. It may also
-  create a new game or add the currently-logged in user to a game."""
+class Wins():
+  x_win_patterns = ['XXX......',
+                    '...XXX...',
+                    '......XXX',
+                    'X..X..X..',
+                    '.X..X..X.',
+                    '..X..X..X',
+                    'X...X...X',
+                    '..X.X.X..']
 
-  def get(self):
-    user = users.get_current_user()
-    if not user:
-      self.redirect(users.create_login_url(self.request.uri))
-      return
-    game_key = self.request.get('gamekey')
-    
+  o_win_patterns = map(lambda s: s.replace('X','O'), x_win_patterns)
+  
+  x_wins = map(lambda s: re.compile(s), x_win_patterns)
+  o_wins = map(lambda s: re.compile(s), o_win_patterns)
 
-    game = None
-    if not game_key:
-      # If no game was specified, create a new game and make this user
-      # the 'X' player.
-      game_key = user.user_id()
-      game = Game(key_name = game_key,
-                  userX = user,
-                  moveX = True,
-                  board = '         ')
-      game.put()
-      print("starting game...."+game_key)
-    else:
-      game = Game.get_by_key_name(game_key)
-      if not game.userO and game.userX != user:
-        # If this game has no 'O' player, then make the current user
-        # the 'O' player.
-        game.userO = user
-        game.put()
-
-    token = channel.create_channel(user.user_id() + game_key)
-    template_values = {'token': token,
-                       'me': user.user_id(),
-                       'game_key': game_key
-                       }
-    template = jinja_environment.get_template('index.html')
-    self.response.out.write(template.render(template_values))
-
-jinja_environment = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(os.path.dirname(__file__)))
-app = webapp2.WSGIApplication([('/', MainPage)],
-                              debug=True)
-
-
-class MovePage(webapp2.RequestHandler):
-
-  def post(self):
-    game = GameFromRequest(self.request).get_game()
-    user = users.get_current_user()
-    if game and user:
-      id = int(self.request.get('i'))
-      GameUpdater(game).make_move(id, user)
-
-class GameFromRequest():
-  game = None;
-
-  def __init__(self, request):
-    user = users.get_current_user()
-    game_key = request.get('gamekey')
-    if user and game_key:
-      self.game = Game.get_by_key_name(game_key)
-
-  def get_game(self):
-    return self.game
 
 class GameUpdater():
-  """Creates an object to store the game's state, and handles validating moves
-  and broadcasting updates to the game."""
   game = None
 
   def __init__(self, game):
     self.game = game
 
   def get_game_message(self):
-    # The gameUpdate object is sent to the client to render the state of a game.
     gameUpdate = {
       'board': self.game.board,
       'userX': self.game.userX.user_id(),
@@ -129,15 +64,15 @@ class GameUpdater():
       'winner': self.game.winner,
       'winningBoard': self.game.winning_board
     }
-    return simplejson.dumps(gameUpdate)
+    return json.dumps(gameUpdate)
 
   def send_update(self):
     message = self.get_game_message()
-    channel.send_message(self.game.userX.user_id() + self.game.key().name(),
-message)
+    #channel.send_message(self.game.userX.user_id() + self.game.key().id_or_name(), message)
+    channel.send_message(self.game.userX.user_id() + self.game.key.id(), message)
     if self.game.userO:
-      channel.send_message(self.game.userO.user_id() + self.game.key().name(),
-message)
+      #channel.send_message(self.game.userO.user_id() + self.game.key().id_or_name(), message)
+      channel.send_message(self.game.userO.user_id() + self.game.key.id(), message)
 
   def check_win(self):
     if self.game.moveX:
@@ -148,7 +83,7 @@ message)
       # X just moved, check for X wins
       wins = Wins().x_wins
       potential_winner = self.game.userX.user_id()
-
+      
     for win in wins:
       if win.match(self.game.board):
         self.game.winner = potential_winner
@@ -167,3 +102,75 @@ message)
           self.game.put()
           self.send_update()
           return
+
+
+class GameFromRequest():
+  game = None;
+
+  def __init__(self, request):
+    game_key = request.get('g')
+    if game_key:
+      self.game = Game.get_by_id(game_key)
+
+  def get_game(self):
+    return self.game
+
+
+class MovePage(webapp2.RequestHandler):
+
+  def post(self):
+    game = GameFromRequest(self.request).get_game()
+    if game:
+      id = int(self.request.get('i'))
+      user = users.get_current_user()
+      GameUpdater(game).make_move(id, user)
+
+
+class OpenedPage(webapp2.RequestHandler):
+  def post(self):
+    game = GameFromRequest(self.request).get_game()
+    GameUpdater(game).send_update()
+
+
+class MainPage(webapp2.RequestHandler):
+  """The main UI page, renders the 'index.html' template."""
+
+  def get(self):
+    """Renders the main page. When this page is shown, we create a new
+    channel to push asynchronous updates to the client."""
+    user = users.get_current_user()
+    game_key = self.request.get('g')
+    game = None
+    if not game_key:
+      game_key = user.user_id()
+      game = Game(id = game_key,
+                  userX = user,
+                  moveX = True,
+                  board = '         ')
+      game.put()
+    else:
+      game = Game.get_by_id(game_key)
+      if not game.userO:
+        game.userO = user
+        game.put()
+
+    game_link = self.request.url + '?g=' + game_key
+    
+    if game:
+      token = channel.create_channel(user.user_id() + game_key)
+      template_values = {'token': token,
+                         'me': user.user_id(),
+                         'game_key': game_key,
+                         'game_link': game_link,
+                         'initial_message': GameUpdater(game).get_game_message()
+                        }
+      template = JINJA_ENVIRONMENT.get_template('index.html')
+      self.response.write(template.render(template_values))
+
+    else:
+      self.response.out.write('No such game')
+
+application = webapp2.WSGIApplication([
+    ('/', MainPage),
+    ('/opened', OpenedPage),
+    ('/move', MovePage)], debug=True)
